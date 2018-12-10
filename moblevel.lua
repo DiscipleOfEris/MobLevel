@@ -1,6 +1,6 @@
 _addon.name = 'Mob Level'
 _addon.author = 'DiscipleOfEris'
-_addon.version = '1.1.0'
+_addon.version = '1.1.1'
 _addon.command = 'level'
 
 -- Stores the level of mobs from widescan, and then displays the level of your current target.
@@ -146,7 +146,7 @@ function getSettingsByLevel(mobLevel, playerLevel)
   if diff == 0 then return settings.ranks.evenmatch end
 
   if     playerLevel >= 71 then
-    if      diff >= 8   then return settings.ranks.ranks.incrediblytough
+    if      diff >= 8   then return settings.ranks.incrediblytough
     elseif  diff >= 4   then return settings.ranks.verytough
     elseif  diff >= 1   then return settings.ranks.tough
     elseif  diff >= -7  then return settings.ranks.decentchallenge
