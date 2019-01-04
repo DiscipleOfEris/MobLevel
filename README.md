@@ -1,10 +1,10 @@
 # MobLevel
 Displays the level of the currently selected mob. This is fetched via widescan. The level will be color-coded based on the challenge level of the target, and bold if the target is high enough level to aggro.
 
-![Incredibly Tough](DiscipleOfEris.github.io/MobLevel_IncrediblyTough.png)
-![Too Weak](DiscipleOfEris.github.io/MobLevel_TooWeak.png)
-![Easy Prey Aggro](DiscipleOfEris.github.io/MobLevel_AggroEasyPrey.png)
-![Easy Prey No Aggro](DiscipleOfEris.github.io/MobLevel_NoAggroEasyPrey.png)
+![Incredibly Tough](http://DiscipleOfEris.github.io/MobLevel_IncrediblyTough.png)
+![Too Weak](http://DiscipleOfEris.github.io/MobLevel_TooWeak.png)
+![Easy Prey Aggro](http://DiscipleOfEris.github.io/MobLevel_AggroEasyPrey.png)
+![Easy Prey No Aggro](http://DiscipleOfEris.github.io/MobLevel_NoAggroEasyPrey.png)
 
 The color-coding can be be changed in `addons/MobLevel/data/settings.xml`.
 
