@@ -1,15 +1,18 @@
 _addon.name = 'Mob Level'
 _addon.author = 'DiscipleOfEris'
-_addon.version = '1.1.1'
-_addon.command = 'level'
+_addon.version = '1.2.0'
+_addon.commands = {'moblevel', 'level'}
 
 -- Stores the level of mobs from widescan, and then displays the level of your current target.
 
 require('tables')
+require('sets')
 packets = require('packets')
 texts = require('texts')
 require('coroutine')
 config = require('config')
+
+require('statics')
 
 PACKET_WIDESCAN = 0x0F4
 SPAWN_TYPE_ENEMY = 16
@@ -19,7 +22,7 @@ level = texts.new('${level}', {
         x = -18,
     },
     bg = {
-        visible = false,
+        alpha = 63, red=0, green=0, blue=0,
     },
     flags = {
         right = true,
@@ -37,14 +40,16 @@ level = texts.new('${level}', {
     },
 })
 
-target_idx_to_level = T{}
-scanning = false
+target_idx_table = T{}
+scanning = 0
+max_scan_wait = 15
 co = nil
 
 defaults = {}
 defaults.auto = true
 defaults.interval = 300
-defaults.bg = { visible=false }
+--defaults.bg = { visible=false }
+defaults.bg = { alpha=63, red=0, green=0, blue=0 }
 defaults.text = { size=10, alpha=185 }
 defaults.ranks = {}
 defaults.ranks.tooweak = { text={red=160, blue=160, green=160} }
@@ -57,12 +62,18 @@ defaults.ranks.incrediblytough = { text={red=255, blue=80, green=80} }
 
 settings = config.load(defaults)
 
-windower.register_event('incoming chunk', function(id, original, modified, injected, blocked)
-  if id == PACKET_WIDESCAN then
-    scanning = false
-    packet = packets.parse('incoming', original)
-    target_idx_to_level[packet.Index] = {lvl=packet.Level, expires=os.time()+settings.interval}
+windower.register_event('load', function()
+  if settings.auto then
+    routine()
   end
+end)
+
+windower.register_event('incoming chunk', function(id, original, modified, injected, blocked)
+  if id ~= PACKET_WIDESCAN then return end
+  
+  scanning = 0
+  packet = packets.parse('incoming', original)
+  target_idx_table[packet.Index] = {lvl=packet.Level, expires=os.time()+settings.interval}
 end)
 
 windower.register_event('prerender', function()
@@ -73,13 +84,13 @@ windower.register_event('prerender', function()
     return
   end
   
-  if not target_idx_to_level:containskey(target.index) then
+  if not target_idx_table:containskey(target.index) then
     if settings.auto then scan() end
     level:hide()
     return
   end
   
-  t = target_idx_to_level[target.index]
+  t = target_idx_table[target.index]
   if t.lvl <= 0 or os.time() >= t.expires then
     if settings.auto then scan() end
     level:hide()
@@ -92,32 +103,56 @@ windower.register_event('prerender', function()
   level:pos_y(-76 - 20 * party_info.party1_count)
   
   local player = windower.ffxi.get_player()
+  local aggro = canAggro(t.lvl, player.main_job_level)
   
   apply_settings(level, getSettingsByLevel(t.lvl, player.main_job_level), settings)
+  level:bold(aggro)
+  level:size(aggro and 11 or 10)
   level:update({level=t.lvl})
   level:show()
 end)
 
 windower.register_event('addon command', function(command, ...)
   args = L{...}
-  if command == 'ws' or command == 'scan' then
+  if not command then
+    
+  elseif command == 'ws' or command == 'scan' then
     scan()
   elseif command == 'auto' or command == 'autoscan' then
     settings.auto = not settings.auto
     config.save(settings)
     
     if not settings.auto then
-      if co~= nil then
+      if co then
         coroutine.close(co)
         co = nil
       end
     else
-      scan()
-      co = coroutine.schedule(routine, settings.interval)
+      routine()
     end
   elseif command == 'interval' then
-    settings.interval = tonumber(args[1])
+    if not args[1] then
+      windower.add_to_chat(0, 'MobLevel: Current autoscanning interval is '..settings.interval..'s.')
+      return
+    end
+    local interval = tonumber(args[1])
+    settings.interval = interval
     config.save(settings)
+  elseif challenges:contains(command) or initials[command] then
+    if initials[command] then command = initials[command] end
+    local level = 0
+    if args[1] then level = tonumber(args[1])
+    else level = windower.ffxi.get_player().main_job_level end
+    
+    local low, high = getLevelByChallenge(command, level)
+    windower.add_to_chat(0, 'MobLevel: '..command..': '..low..'-'..high..'.')
+  elseif command == 'aggro' then
+    local level = 0
+    if args[1] then level = tonumber(args[1])
+    else level = windower.ffxi.get_player().main_job_level end
+    
+    local low = getMinAggro(level)
+    windower.add_to_chat(0, 'MobLevel: Aggro range is '..low..'-'..(math.huge)..'.')
   end
 end)
 
@@ -130,9 +165,14 @@ function routine()
 end
 
 function scan()
-  if scanning then return end
+  if scanning + max_scan_wait > os.time() then return end
   
-  scanning = true
+  -- Check if in zone
+  local self = windower.ffxi.get_mob_by_target('me')
+  if not self then return end
+  
+  scanning = os.time()
+  
   packet = packets.new('outgoing', PACKET_WIDESCAN, {
     ['Flags'] = 1,
     ['_unknown1'] = 0,
@@ -142,92 +182,76 @@ function scan()
 end
 
 function getSettingsByLevel(mobLevel, playerLevel)
-  diff = mobLevel - playerLevel
-  if diff == 0 then return settings.ranks.evenmatch end
-
-  if     playerLevel >= 71 then
-    if      diff >= 8   then return settings.ranks.incrediblytough
-    elseif  diff >= 4   then return settings.ranks.verytough
-    elseif  diff >= 1   then return settings.ranks.tough
-    elseif  diff >= -7  then return settings.ranks.decentchallenge
-    elseif  diff >= -19 then return settings.ranks.easyprey end
-  elseif playerLevel >= 66 then
-    if      diff >= 8   then return settings.ranks.incrediblytough
-    elseif  diff >= 4   then return settings.ranks.verytough
-    elseif  diff >= 1   then return settings.ranks.tough
-    elseif  diff >= -6  then return settings.ranks.decentchallenge
-    elseif  diff >= -18 then return settings.ranks.easyprey end
-  elseif playerLevel >= 61 then
-    if      diff >= 8   then return settings.ranks.incrediblytough
-    elseif  diff >= 4   then return settings.ranks.verytough
-    elseif  diff >= 1   then return settings.ranks.tough
-    elseif  diff >= -6  then return settings.ranks.decentchallenge
-    elseif  diff >= -17 then return settings.ranks.easyprey end
-  elseif playerLevel >= 56 then
-    if      diff >= 8   then return settings.ranks.incrediblytough
-    elseif  diff >= 4   then return settings.ranks.verytough
-    elseif  diff >= 1   then return settings.ranks.tough
-    elseif  diff >= -5  then return settings.ranks.decentchallenge
-    elseif  diff >= -16 then return settings.ranks.easyprey end
-  elseif playerLevel >= 51 then
-    if      diff >= 7   then return settings.ranks.incrediblytough
-    elseif  diff >= 4   then return settings.ranks.verytough
-    elseif  diff >= 1   then return settings.ranks.tough
-    elseif  diff >= -5  then return settings.ranks.decentchallenge
-    elseif  diff >= -15 then return settings.ranks.easyprey end
-  elseif playerLevel >= 46 then
-    if      diff >= 6   then return settings.ranks.incrediblytough
-    elseif  diff >= 4   then return settings.ranks.verytough
-    elseif  diff >= 1   then return settings.ranks.tough
-    elseif  diff >= -4  then return settings.ranks.decentchallenge
-    elseif  diff >= -14 then return settings.ranks.easyprey end
-  elseif playerLevel >= 41 then
-    if      diff >= 5   then return settings.ranks.incrediblytough
-    elseif  diff >= 4   then return settings.ranks.verytough
-    elseif  diff >= 1   then return settings.ranks.tough
-    elseif  diff >= -4  then return settings.ranks.decentchallenge
-    elseif  diff >= -13 then return settings.ranks.easyprey end
-  elseif playerLevel >= 36 then
-    if      diff >= 5   then return settings.ranks.incrediblytough
-    elseif  diff >= 4   then return settings.ranks.verytough
-    elseif  diff >= 1   then return settings.ranks.tough
-    elseif  diff >= -3  then return settings.ranks.decentchallenge
-    elseif  diff >= -12 then return settings.ranks.easyprey end
-  elseif playerLevel >= 31 then
-    if      diff >= 5   then return settings.ranks.incrediblytough
-    elseif  diff >= 4   then return settings.ranks.verytough
-    elseif  diff >= 1   then return settings.ranks.tough
-    elseif  diff >= -3  then return settings.ranks.decentchallenge
-    elseif  diff >= -11 then return settings.ranks.easyprey end
-  elseif playerLevel >= 21 then
-    if      diff >= 6   then return settings.ranks.incrediblytough
-    elseif  diff >= 5   then return settings.ranks.verytough
-    elseif  diff >= 1   then return settings.ranks.tough
-    elseif  diff >= -2  then return settings.ranks.decentchallenge
-    elseif  diff >= -10 then return settings.ranks.easyprey end
-  elseif playerLevel >= 11 then
-    if      diff >= 6   then return settings.ranks.incrediblytough
-    elseif  diff >= 5   then return settings.ranks.verytough
-    elseif  diff >= 1   then return settings.ranks.tough
-    elseif  diff >= -2  then return settings.ranks.decentchallenge
-    elseif  diff >= -9  then return settings.ranks.easyprey end
-  elseif playerLevel >= 6 then
-    if      diff >= 6   then return settings.ranks.incrediblytough
-    elseif  diff >= 5   then return settings.ranks.verytough
-    elseif  diff >= 1   then return settings.ranks.tough
-    elseif  diff >= -2  then return settings.ranks.decentchallenge
-    elseif  diff >= -8  then return settings.ranks.easyprey end
-  else --playerLevel >= 1
-    if      diff >= 6   then return settings.ranks.incrediblytough
-    elseif  diff >= 5   then return settings.ranks.verytough
-    elseif  diff >= 1   then return settings.ranks.tough
-    elseif  diff >= -2  then return settings.ranks.decentchallenge
-    elseif  diff >= -7  then return settings.ranks.easyprey end
-  end
-  
-  return settings.ranks.tooweak
+  return settings.ranks[getChallengeByLevel(mobLevel, playerLevel)]
 end
 
+function getChallengeByLevel(mobLevel, playerLevel)
+  if mobLevel == playerLevel then return 'evenmatch' end
+
+  local xp = getExp(mobLevel, playerLevel)
+
+  if xp == 0 then return 'tooweak' end
+
+  if     xp >= expRanges.incrediblytough[1] then return 'incrediblytough'
+  elseif xp >= expRanges.verytough[1]       then return 'verytough'
+  elseif xp >= expRanges.tough[1]           then return 'tough'
+  elseif xp >= expRanges.decentchallenge[1] then return 'decentchallenge'
+  elseif xp >= expRanges.easyprey[1]        then return 'easyprey' end
+end
+
+function getLevelByChallenge(challenge, playerLevel)
+  if not challenges:contains(challenge) then return false end
+  if challenge == 'evenmatch' then return playerLevel,playerLevel end
+  
+  local xpMin = expRanges[challenge][1]
+  local xpMax = expRanges[challenge][2]
+  
+  local xpCol = math.floor((playerLevel-1)/5)+1
+  local diffMax = 15
+  local diffMin = -34
+
+  for diff=-34,15,1 do
+    local xp = expTable[diff][xpCol]
+    if xp > xpMax then break end
+    diffMax = diff
+  end
+  for diff=15,-34,-1 do
+    local xp = expTable[diff][xpCol]
+    if xp < xpMin then break end
+    diffMin = diff
+  end
+
+  local lvlMin = playerLevel+diffMin
+  local lvlMax = playerLevel+diffMax
+
+  if lvlMax < 1 then return 0,0 end
+  if lvlMax == 1 then return 1,1 end
+  
+  if diffMax == 15 then lvlMax = math.huge end
+  if diffMin == -34 then lvlMin = 1 end
+  if lvlMin < 1 then lvlMin = 1 end
+
+  return lvlMin,lvlMax
+end
+
+function canAggro(mobLevel, playerLevel)
+  -- This formula isn't perfect on retail (according to wiki), but it is what DarkstarProject uses.
+  return getExp(mobLevel, playerLevel) > 50
+end
+
+function getMinAggro(playerLevel)
+  local xpCol = math.floor((playerLevel-1)/5)+1
+  local diffMin = -34
+  for diff=-34,15,1 do
+    if expTable[diff][xpCol] > 50 then return clamp(playerLevel+diff, 1, 75) end
+  end
+end
+
+function getExp(mobLevel, playerLevel)
+  local diff = clamp(mobLevel - playerLevel, -34, 15)
+  
+  return expTable[diff][math.floor((playerLevel-1)/5)+1]
+end
 
 function apply_settings(box, settings, default)
     bg = settings.bg and settings.bg.red and settings.bg or default.bg
@@ -239,4 +263,10 @@ function apply_settings(box, settings, default)
     box:bg_color(bg.red, bg.green, bg.blue)
     box:color(text.red, text.green, text.blue)
     box:alpha(text_alpha)
+end
+
+function clamp(value, min, max)
+  if     value > max then return max
+  elseif value < min then return min
+  else                    return value end
 end
