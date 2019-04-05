@@ -1,6 +1,6 @@
 _addon.name = 'Mob Level'
 _addon.author = 'DiscipleOfEris'
-_addon.version = '1.2.0'
+_addon.version = '1.2.1'
 _addon.commands = {'moblevel', 'level'}
 
 -- Stores the level of mobs from widescan, and then displays the level of your current target.
@@ -11,6 +11,7 @@ packets = require('packets')
 texts = require('texts')
 require('coroutine')
 config = require('config')
+zones = require('resources').zones
 
 require('statics')
 
@@ -168,8 +169,9 @@ function scan()
   if scanning + max_scan_wait > os.time() then return end
   
   -- Check if in zone
+  local info = windower.ffxi.get_info()
   local self = windower.ffxi.get_mob_by_target('me')
-  if not self then return end
+  if not self or not info or invalid_zones:contains(zones[info.zone].en) then return end
   
   scanning = os.time()
   

@@ -72,3 +72,12 @@ expTable = T{
   [-33] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
   [-34] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 }
+
+invalid_zones = S{
+  "Southern San d'Oria", "Northern San d'Oria", "Port San d'Oria", "Chateau d'Oraguille",
+  "Bastok Mines", "Bastok Markets", "Port Bastok", "Metalworks",
+  "Windurst Waters", "Windurst Walls", "Port Windurst", "Windurst Woods",
+  "Ru'Lude Gardens", "Upper Jeuno", "Lower Jeuno", "Port Jeuno",
+  --[["Al Zahbi", --]]"Aht Urhgan Whitegate",
+  "Selbina", "Mhaura", "Tavnazian Safehold", "Nashmau", "Rabao", "Kazham", "Norg",
+}
