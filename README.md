@@ -1,3 +1,5 @@
+# Development for this addon has been moved to https://github.com/DiscipleOfEris/Windower4Addons
+
 # MobLevel
 Displays the level of the currently selected mob. This is fetched via widescan. The level will be color-coded based on the challenge level of the target, and bold if the target is high enough level to aggro.
 
